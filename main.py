@@ -76,3 +76,44 @@ plt.gcf().autofmt_xdate()
 # 显示图形
 plt.show()
 '''
+#######################将图像的绘制封装成为一个函数##############################
+#参数1：为文件所在路径； 参数2：起始行； 参数3：终止行： 参数4：起始列： 参数5：终止列
+#注excel数据的第一列为表示，所以参数0列对应第二列
+#函数功能：给定数据范围，能够根据范围绘制负荷曲线
+#
+def plot_data_from_excel(file_path, start_row, end_row, start_col, end_col):
+    # 读取 Excel 文件
+    data = pd.read_excel(file_path)
+    time_index = pd.date_range(start='2022-01-01', periods=(end_col - start_col), freq='15min')  # 生成一天时间范围内每隔15分钟的时间索引
+    print(data)
+
+    # 提取 x 和 y 数据
+    y_data = data.iloc[start_row:end_row, (start_col+1):(end_col+1)].values.T
+
+    # 创建 DataFrame
+    df = pd.DataFrame(y_data, index=time_index, columns=[f'2022-01-{i + 1}' for i in range(end_row - start_row)])
+
+    # 创建一个新的图形
+    plt.figure(figsize=(10, 6))
+
+    # 绘制折线图
+    for column in df.columns:
+        plt.plot(df.index, df[column], marker='o', linestyle='-', label=column)
+
+    # 添加标题和标签
+    plt.title('Daily Load Variation Chart')
+    plt.xlabel('Daily time/h')
+    plt.ylabel('Power/KW')
+
+    # 添加图例
+    plt.legend()
+
+    # 自动格式化时间轴
+    plt.gcf().autofmt_xdate()
+    plt.show()
+plot_data_from_excel('C:\\Users\\jack\Desktop\\pythonProject_test\\data_file.xlsx',0,5,0,96)
+
+
+
+
+
