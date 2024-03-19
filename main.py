@@ -108,6 +108,38 @@ plt.gcf().autofmt_xdate()
 # 显示图形
 plt.show()
 '''
+##################################绘制出连续两周的信息#########################
+'''
+# 提取数据并转置
+y_data_flattened = data.iloc[0:7*2, 1:].values
+
+# 展平数组并连接每行的数据
+y_data_flattened = np.concatenate(y_data_flattened).T
+
+time_index = pd.date_range(start='2009-01-01', periods=672*2, freq='15min')  # 生成一周时间范围内每隔15分钟的时间索引
+
+df = pd.DataFrame(y_data_flattened, index=time_index, columns=['Week 1'])  # 使用整个数组作为数据
+
+# 创建一个新的图形
+plt.figure(figsize=(20, 6))
+
+# 绘制折线图
+plt.plot(df.index, df['Week 1'], marker='o', linestyle='-')
+
+# 添加标题和标签
+plt.title('Weekly Load Variation Chart')
+plt.xlabel('Weekly time/h')
+plt.ylabel('Power/KW')
+
+# 添加图例
+# plt.legend()
+
+# 自动格式化时间轴
+plt.gcf().autofmt_xdate()
+
+# 显示图形
+plt.show()
+'''
 #######################将图像的绘制封装成为一个函数##############################
 #参数1：为文件所在路径； 参数2：起始行； 参数3：终止行： 参数4：起始列： 参数5：终止列
 #注excel数据的第一列为表示，所以参数0列对应第二列
