@@ -176,7 +176,52 @@ def plot_data_from_excel(file_path, start_row, end_row, start_col, end_col):
     plt.gcf().autofmt_xdate()
     plt.show()
 plot_data_from_excel('C:\\Users\\jack\Desktop\\pythonProject_test\\data_file.xlsx',0,5,0,96)
+#%%###############################负荷数据预处理：异常值处理#################################
+#提取表格1
+Load= pd.read_excel('C:\\Users\\jack\Desktop\\pythonProject_test\\data_file.xlsx',sheet_name=0)
+print(Load)
+# 计算四分位数和四分位距，并处理异常值
+for column in Load.columns[1:]:
+    Q1 = np.percentile(Load[column], 25)
+    Q3 = np.percentile(Load[column], 75)
+    IQR = Q3 - Q1
 
+    upper_limit = Q3 + 1.5 * IQR
+    lower_limit = Q1 - 1.5 * IQR
+
+    outliers = np.where((Load[column] > upper_limit) | (Load[column] < lower_limit))
+    Load.loc[(Load[column] > upper_limit) | (Load[column] < lower_limit), column] = np.nan
+
+# 对缺失值进行插值处理
+Load.interpolate(method='linear', inplace=True)
+for column in Load.columns[1:]:
+    Load.loc[2023:,column]=np.nan
+print(Load)
+#%%######################参数进行数据预处理：缺失值及异常值处理################################
+#提取表格2
+Weather= pd.read_excel('C:\\Users\\jack\Desktop\\pythonProject_test\\data_file.xlsx',sheet_name=1)
+print(Weather)
+Weather.interpolate(method='linear', inplace=True)
+
+# 计算四分位数和四分位距，并处理异常值
+for column in Weather.columns[1:3]:
+    Q1 = np.percentile(Weather[column], 25)
+    Q3 = np.percentile(Weather[column], 75)
+    IQR = Q3 - Q1
+
+    upper_limit = Q3 + 1.5 * IQR
+    lower_limit = Q1 - 1.5 * IQR
+
+    outliers = np.where((Weather[column] > upper_limit) | (Weather[column] < lower_limit))
+    print(f"{column}异常值索引：", outliers[0])
+    print(f"{column}异常值：", Weather[column].values[outliers])
+    Weather.loc[(Weather[column] > upper_limit) | (Weather[column] < lower_limit), column] = np.nan
+
+# 对缺失值进行插值处理
+Weather.interpolate(method='linear', inplace=True)
+
+print(Weather)
+        
 
 
 
