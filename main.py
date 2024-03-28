@@ -221,7 +221,257 @@ for column in Weather.columns[1:3]:
 Weather.interpolate(method='linear', inplace=True)
 
 print(Weather)
+#%%################################对VMD模型进行测试:构建测试序列#################################################
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb 20 19:50:28 2019
+
+@author: Vinícius Rezende Carvalho
+
+Test script for Variational Mode Decomposition (Dragomiretskiy and Zosso, 2014)
+Original paper:
+Dragomiretskiy, K. and Zosso, D. (2014) ‘Variational Mode Decomposition’,
+IEEE Transactions on Signal Processing, 62(3), pp. 531–544. doi: 10.1109/TSP.2013.2288675.
+original MATLAB code: https://www.mathworks.com/matlabcentral/fileexchange/44765-variational-mode-decomposition
+"""
+
+#from __future__ import division# if python 2
+
+# Time Domain 0 to T
+T = 1344
+fs = 1/T
+t = np.arange(1,T+1)/T
+freqs = 2*np.pi*(t-0.5-fs)/(fs)
+
+# center frequencies of components
+f_1 = 2
+f_2 = 24
+f_3 = 288
+
+# modes
+v_1 = (np.cos(2*np.pi*f_1*t))
+v_2 = 1/4*(np.cos(2*np.pi*f_2*t))
+v_3 = 1/16*(np.cos(2*np.pi*f_3*t))
+
+#
+#% for visualization purposes
+fsub = {1:v_1,2:v_2,3:v_3}
+wsub = {1:2*np.pi*f_1,2:2*np.pi*f_2,3:2*np.pi*f_3}
+
+# composite signal, including noise
+
+f = v_1 + v_2 + v_3 + 0.1*np.random.randn(v_1.size)
+f_hat = np.fft.fftshift((np.fft.fft(y_data_flattened)))
+
+# some sample parameters for VMD
+alpha = 2000       # moderate bandwidth constraint
+tau = 0.            # noise-tolerance (no strict fidelity enforcement)
+K = 3              # 3 modes
+DC = 0             # no DC part imposed
+init = 1           # initialize omegas uniformly
+tol = 1e-7
+
+
+# Run actual VMD code
+
+#u, u_hat, omega = VMD(f, alpha, tau, K, DC, init, tol)
+
+#%%#####################对VMD模型进行测试：将处理后的模型进行可视化######################################
+# Simple Visualization of decomposed modes
+"""
+plt.figure(figsize=(20, 6))
+plt.plot(f)
+plt.figure()
+plt.plot(u.T)
+plt.title('Decomposed modes')
+
+
+# For convenience here: Order omegas increasingly and reindex u/u_hat
+sortIndex = np.argsort(omega[-1,:])
+omega = omega[:,sortIndex]
+u_hat = u_hat[:,sortIndex]
+u = u[sortIndex,:]
+linestyles = ['b', 'g', 'm', 'c', 'c', 'r', 'k']
+
+fig1 = plt.figure()
+plt.subplot(411)
+plt.plot(t,f)
+plt.xlim((0,1))
+for key, value in fsub.items():
+    plt.subplot(4,1,key+1)
+    plt.plot(t,value)
+fig1.suptitle('Original input signal and its components')
+
+
+fig2 = plt.figure()
+plt.loglog(freqs[T//2:], abs(f_hat[T//2:]))
+plt.xlim(np.array([1,T/2])*np.pi*2)
+ax = plt.gca()
+ax.grid(which='major', axis='both', linestyle='--')
+fig2.suptitle('Input signal spectrum')
+
+
+fig3 = plt.figure()
+for k in range(K):
+    plt.semilogx(2*np.pi/fs*omega[:,k], np.arange(1,omega.shape[0]+1), linestyles[k])
+fig3.suptitle('Evolution of center frequencies omega')
+
+
+fig4 = plt.figure()
+plt.loglog(freqs[T//2:], abs(f_hat[T//2:]), 'k:')
+plt.xlim(np.array([1, T//2])*np.pi*2)
+for k in range(K):
+    plt.loglog(freqs[T//2:], abs(u_hat[T//2:,k]), linestyles[k])
+fig4.suptitle('Spectral decomposition')
+plt.legend(['Original','1st component','2nd component','3rd component'])
+
+
+fig4 = plt.figure()
+
+for k in range(K):
+    plt.subplot(3,1,k+1)
+    plt.plot(t,u[k,:], linestyles[k])
+    plt.plot(t, fsub[k+1], 'k:')
+
+    plt.xlim((0,1))
+    plt.title('Reconstructed mode %d'%(k+1))
+plt.show()
+"""
+#%%#######################对实际数据进行测试#########################################
+# 提取数据并转置
+u, u_hat, omega = VMD(y_data_flattened, alpha, tau, K, DC, init, tol)
+plt.figure(figsize=(20, 6))
+plt.plot(y_data_flattened)
+plt.figure()
+plt.plot(u.T)
+plt.title('Decomposed modes')
+
+
+# For convenience here: Order omegas increasingly and reindex u/u_hat
+sortIndex = np.argsort(omega[-1,:])
+omega = omega[:,sortIndex]
+u_hat = u_hat[:,sortIndex]
+u = u[sortIndex,:]
+linestyles = ['b', 'g', 'm', 'c', 'c', 'r', 'k']
+
+fig1 = plt.figure()
+plt.subplot(411)
+plt.xlim((0,1344))
+plt.plot(y_data_flattened)
+for i, row in enumerate(u):
+    plt.subplot(4,1,i+2)
+    plt.plot(row)
+fig1.suptitle('Original input signal Decomposed modes')
+plt.show()
+
+fig2 = plt.figure()
+plt.loglog(freqs[T//2:], abs(f_hat[T//2:]))
+plt.xlim(np.array([1,T/2])*np.pi*2)
+ax = plt.gca()
+ax.grid(which='major', axis='both', linestyle='--')
+fig2.suptitle('Input signal spectrum')
+
+
+fig3 = plt.figure()
+for k in range(K):
+    plt.semilogx(2*np.pi/fs*omega[:,k], np.arange(1,omega.shape[0]+1), linestyles[k])
+fig3.suptitle('Evolution of center frequencies omega')
+
+
+fig4 = plt.figure()
+plt.loglog(freqs[T//2:], abs(f_hat[T//2:]), 'k:')
+plt.xlim(np.array([1, T//2])*np.pi*2)
+for k in range(K):
+    plt.loglog(freqs[T//2:], abs(u_hat[T//2:,k]), linestyles[k])
+fig4.suptitle('Spectral decomposition')
+plt.legend(['Original','1st component','2nd component','3rd component'])
+
+
+fig4 = plt.figure()
+
+for k in range(K):
+    plt.subplot(3,1,k+1)
+    plt.plot(t,u[k,:], linestyles[k])
+    plt.plot(t, fsub[k+1], 'k:')
+
+    plt.xlim((0,1))
+    plt.title('Reconstructed mode %d'%(k+1))
+plt.show()
+#%%######################BP神经网络预测###############################
+"""
+class NeuralNetwork:
+    def __init__(self, input_size, hidden_size, output_size):
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
         
+        # 初始化权重
+        self.weights_input_hidden = np.random.randn(self.input_size, self.hidden_size)
+        self.weights_hidden_output = np.random.randn(self.hidden_size, self.output_size)
+        
+        # 初始化偏置
+        self.bias_hidden = np.zeros((1, self.hidden_size))
+        self.bias_output = np.zeros((1, self.output_size))
+        
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+    
+    def sigmoid_derivative(self, x):
+        return x * (1 - x)
+    
+    def feedforward(self, inputs):
+        # 输入到隐藏层
+        hidden_inputs = np.dot(inputs, self.weights_input_hidden) + self.bias_hidden
+        hidden_outputs = self.sigmoid(hidden_inputs)
+        
+        # 隐藏层到输出层
+        final_inputs = np.dot(hidden_outputs, self.weights_hidden_output) + self.bias_output
+        final_outputs = self.sigmoid(final_inputs)
+        
+        return final_outputs
+    
+    def train(self, inputs, targets, learning_rate):
+        # 前向传播
+        hidden_inputs = np.dot(inputs, self.weights_input_hidden) + self.bias_hidden
+        hidden_outputs = self.sigmoid(hidden_inputs)
+        
+        final_inputs = np.dot(hidden_outputs, self.weights_hidden_output) + self.bias_output
+        final_outputs = self.sigmoid(final_inputs)
+        
+        # 计算输出层误差
+        output_errors = targets - final_outputs
+        output_delta = output_errors * self.sigmoid_derivative(final_outputs)
+        
+        # 计算隐藏层误差
+        hidden_errors = np.dot(output_delta, self.weights_hidden_output.T)
+        hidden_delta = hidden_errors * self.sigmoid_derivative(hidden_outputs)
+        
+        # 更新权重和偏置
+        self.weights_hidden_output += np.dot(hidden_outputs.T, output_delta) * learning_rate
+        self.weights_input_hidden += np.dot(inputs.T, hidden_delta) * learning_rate
+        
+        self.bias_output += np.sum(output_delta, axis=0) * learning_rate
+        self.bias_hidden += np.sum(hidden_delta, axis=0) * learning_rate
+
+
+# 示例用法
+# 创建一个具有2个输入，3个隐藏节点和1个输出的神经网络
+nn = NeuralNetwork(2, 3, 1)
+
+# 训练数据
+inputs = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+targets = np.array([[0], [1], [1], [0]])
+
+# 训练网络
+epochs = 10000
+learning_rate = 0.1
+for epoch in range(epochs):
+    nn.train(inputs, targets, learning_rate)
+
+# 进行预测
+for input in inputs:
+    print(input, nn.feedforward(input))
+"""
 
 
 
