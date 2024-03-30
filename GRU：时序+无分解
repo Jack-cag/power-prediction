@@ -1,9 +1,4 @@
-#%%######################调用第三方库#############################
-
-#import pandas as pd
-#import numpy as np
-#import matplotlib.pyplot as plt
-#from vmdpy import VMD
+#######################调用第三方库#############################
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,51 +12,59 @@ seed = 1234
 np.random.seed(seed)
 plt.style.use('ggplot')
 
-
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
+#%%#######################绘制出一列数据的信息####################################
+# In[1]                     加载数据风电数据
+Area1_Load = pd.read_csv('Area1_Load.csv',index_col='YMD', parse_dates=['YMD'])
+Area2_Load = pd.read_csv('Area2_Load.csv',index_col='YMD', parse_dates=['YMD'])
+Area1_Weather = pd.read_csv('Area1_Weather.csv',index_col='YMD', parse_dates=['YMD'])
+Area2_Weather = pd.read_csv('Area1_Weather.csv',index_col='YMD', parse_dates=['YMD'])
 
-# In[2]
-dataraw = pd.read_csv('BTC-USD.csv',index_col='Date', parse_dates=['Date'])
-dataraw
+# In[2]                    将提取出来的数据整理格式
+startday=60
+length=200
+name='Area1_Load'
+Area_Load=Area1_Load
+Area_Weather=Area1_Weather
+Area_Load.describe()
 
-# In[3]
-dataraw.describe()
 
-# In[4]
-# use feature 'Date' & 'Close'
-dataset = pd.DataFrame(dataraw['Close'])
+
+dataset = Area_Load.iloc[startday:startday+length, :].values
+dataset = np.concatenate(dataset).T
+dataset = pd.DataFrame(dataset)
+time_index = pd.date_range(start=Area_Load.iloc[startday].name, periods=96*length, freq='15min')  # 生成一年时间范围内每隔15分钟的时间索引
+dataset.set_index(time_index, inplace=True)
+dataset.rename(columns={0: name}, inplace=True)
+# In[3]                   绘制制定负荷数据并进行归一化处理
 print(' Count row of data: ',len(dataset))
-
 fig = plt.figure(figsize=(14, 6))
 plt.plot(dataset)
-plt.xlabel('Date')
-plt.ylabel('Bitcoin Price')
+plt.xlabel('Time')
+plt.ylabel(name)
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-plt.title('Bitcoin Price')
+plt.title(name)
 plt.show()
-
-# In[5]
 #Min-Max Normalization
 dataset_norm = dataset.copy()
-dataset[['Close']]
+dataset[[name]]
 scaler = MinMaxScaler()
-dataset_norm['Close'] = scaler.fit_transform(dataset[['Close']])
+dataset_norm[name] = scaler.fit_transform(dataset[[name]])
 dataset_norm
 
-# In[6] 
-fig = plt.figure(figsize=(10, 4))
+fig = plt.figure(figsize=(14, 6))
 plt.plot(dataset_norm)
-plt.xlabel('Date')
+plt.xlabel('Time')
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-plt.title('Data Normalized')
+plt.title(name+' Normalized')
 plt.show()
-# In[7] 
+# In[4]                     划分训练集，测试集，验证集并绘制  
 # Partition data into data train, val & test
 totaldata = dataset.values
-totaldatatrain = int(len(totaldata)*0.7)
-totaldataval = int(len(totaldata)*0.1)
-totaldatatest = int(len(totaldata)*0.2)
+totaldatatrain = int(len(totaldata)*0.7)#训练个数
+totaldataval = int(len(totaldata)*0.1)#验证个数
+totaldatatest = int(len(totaldata)*0.2)#测试个数
 
 # Store data into each partition
 training_set = dataset_norm[0:totaldatatrain]
@@ -69,35 +72,33 @@ val_set=dataset_norm[totaldatatrain:totaldatatrain+totaldataval]
 test_set = dataset_norm[totaldatatrain+totaldataval:]
 
 
-# In[8]
 # graph of data training
-fig = plt.figure(figsize=(10, 4))
+fig = plt.figure(figsize=(14, 6))
 plt.plot(training_set)
-plt.xlabel('Date')
+plt.xlabel(name)
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-plt.title('Data Training')
+plt.title(name+' Training')
 plt.show()
 
-# In[9]
+
 # graph of data validation
-fig = plt.figure(figsize=(10, 4))
+fig = plt.figure(figsize=(14, 6))
 plt.plot(val_set)
-plt.xlabel('Date')
+plt.xlabel(name)
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-plt.title('Data Validation')
+plt.title(name+' Validation')
 val_set
 
-# In[10]
+
 # graph of data test
-fig = plt.figure(figsize=(10, 4))
+fig = plt.figure(figsize=(14, 6))
 plt.plot(test_set)
-plt.xlabel('Date')
+plt.xlabel(name)
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-plt.title('Data Test')
+plt.title(name+' Test')
 plt.show()
 test_set
-
-# In[11]
+# In[5]                         实现滑动窗口
 # Initiaton value of lag
 lag = 2
 # sliding windows function
@@ -124,7 +125,7 @@ x_val = np.reshape(x_val, (x_val.shape[0],x_val.shape[1],1))
 x_test,y_test = create_sliding_windows(array_test_set,len(array_test_set),lag)
 x_test = np.reshape(x_test, (x_test.shape[0],x_test.shape[1],1))
 
-# In[12]
+# In[6]
 # Hyperparameters
 learning_rate = 0.0001
 hidden_unit = 64
@@ -153,7 +154,7 @@ regressorGRU.compile(optimizer=optimizers.Adam(learning_rate=learning_rate), los
 # Fitting ke data training dan data validation
 pred = regressorGRU.fit(x_train, y_train, validation_data=(x_val,y_val), batch_size=batch_size, epochs=epoch)
 
-# In[13]
+# In[7]
 # Graph model loss (train loss & val loss)
 fig = plt.figure(figsize=(10, 4))
 plt.plot(pred.history['loss'], label='train loss')
@@ -164,7 +165,7 @@ plt.xlabel('epoch')
 plt.legend(loc='upper right')
 plt.show()
 
-# In[14]
+# In[8]
 # Tabel value of training loss & validation loss
 learningrate_parameter = learning_rate
 train_loss=pred.history['loss'][-1]
@@ -173,24 +174,24 @@ learningrate_parameter=pd.DataFrame(data=[[learningrate_parameter, train_loss, v
                                     columns=['Learning Rate', 'Training Loss', 'Validation Loss'])
 learningrate_parameter.set_index('Learning Rate')
 
-# In[15]
+# In[9]
 # Implementation model into data test
 y_pred_test = regressorGRU.predict(x_test)
 
 # Invert normalization min-max
 y_pred_invert_norm = scaler.inverse_transform(y_pred_test)
 
-# In[16]
+# In[10]
 # Comparison data test with data prediction
 datacompare = pd.DataFrame()
-datatest=np.array(dataset['Close'][totaldatatrain+totaldataval+lag:])
+datatest=np.array(dataset[name][totaldatatrain+totaldataval+lag:])
 datapred= y_pred_invert_norm
 
 datacompare['Data Test'] = datatest
 datacompare['Prediction Results'] = datapred
 datacompare
 
-# In[17]
+# In[11]
 
 # Calculatre value of Root Mean Square Error 
 def rmse(datatest, datapred):
@@ -201,25 +202,15 @@ def mape(datatest, datapred):
     return np.round(np.mean(np.abs((datatest - datapred) / datatest) * 100), 4)
     
 print('Result Mean Absolute Percentage Error Prediction Model : ', mape(datatest, datapred), '%')
-# In[18]
+
+# In[12]
 # Create graph data test and prediction result
 plt.figure(num=None, figsize=(10, 4), dpi=80,facecolor='w', edgecolor='k')
 plt.title('Graph Comparison Data Actual and Data Prediction')
 plt.plot(datacompare['Data Test'], color='red',label='Data Test')
 plt.plot(datacompare['Prediction Results'], color='blue',label='Prediction Results')
 plt.xlabel('Day')
-plt.ylabel('Price')
+plt.ylabel(name)
 plt.legend()
 plt.show()
-
-
-
-
-
-
-
-
-
-
-
 
