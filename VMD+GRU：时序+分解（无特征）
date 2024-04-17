@@ -285,10 +285,6 @@ for i  in range(K+1):
     dfs.append(dataset)
 # In[8]                            将预测分量整合 
 combined_df = pd.concat(dfs, axis=1)
-
-# 按列求和
-sum_column =pd.DataFrame(combined_df.sum(axis=1), columns=['Prediction Results'])
-sum_column.set_index(dataset[datatrain+lag:].index,inplace=True)
 # 更新dataset为原始负荷数据
 dataset = Area_Load.iloc[startday:startday + length, :].values
 dataset = np.concatenate(dataset).T
@@ -296,6 +292,10 @@ dataset = pd.DataFrame(dataset)
 time_index = pd.date_range(start=Area_Load.iloc[startday].name, periods=96 * length, freq='15min')  # 生成一年时间范围内每隔15分钟的时间索引
 dataset.set_index(time_index, inplace=True)
 dataset.rename(columns={0: name}, inplace=True)
+# 按列求和
+sum_column =pd.DataFrame(combined_df.sum(axis=1), columns=['Prediction Results'])
+sum_column.set_index(dataset[datatrain+lag:].index,inplace=True)
+
 
 datacompare = pd.concat([dataset[name][datatrain+lag:], sum_column['Prediction Results']], axis=1)
 
