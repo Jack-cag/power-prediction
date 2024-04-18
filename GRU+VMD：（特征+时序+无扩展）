@@ -1,0 +1,570 @@
+#%%将数据进行VMD分解
+#######################调用第三方库 并对图像格式初始化#############################
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, GRU
+from keras import optimizers
+from sklearn.metrics import mean_squared_error
+from keras.optimizers import Adam
+from vmdpy import VMD
+import mrmr
+
+seed = 1234
+np.random.seed(seed)
+plt.style.use('ggplot')
+
+plt.close('all')
+#设置全局图像格式
+plt.rcParams.update({'font.size': 15})
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['axes.edgecolor'] = 'black'
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+##########################################################################################
+# In[1]                     加载数据风电数据
+Area1_Load = pd.read_csv('Area1_Load.csv', index_col='YMD', parse_dates=['YMD'])
+Area2_Load = pd.read_csv('Area2_Load.csv', index_col='YMD', parse_dates=['YMD'])
+Area1_Weather = pd.read_csv('Area1_Weather.csv', index_col='YMD', parse_dates=['YMD'])
+Area2_Weather = pd.read_csv('Area1_Weather.csv', index_col='YMD', parse_dates=['YMD'])
+
+# In[2]                    将提取出来的数据整理格式 将特征与负荷数据进行适配，更新特征命名
+discre = 0
+startday = 1095+discre
+length = 200
+name = 'Area2_Load'
+Area_Load = Area2_Load
+Area_Weather = Area2_Weather
+Area_Load.describe()
+
+dataset = Area_Load.iloc[startday:startday + length, :].values
+dataset = np.concatenate(dataset).T
+dataset = pd.DataFrame(dataset)
+time_index = pd.date_range(start=Area_Load.iloc[startday].name, periods=96 * length, freq='15min')  # 生成一年时间范围内每隔15分钟的时间索引
+dataset.set_index(time_index, inplace=True)
+dataset.rename(columns={0: name}, inplace=True)
+
+featureset=Area_Weather
+
+# 对缺失值进行插值处理
+featureset.interpolate(method='linear', inplace=True)
+
+# 计算四分位数和四分位距，并处理异常值
+for column in featureset.columns[0:3]:
+    Q1 = np.percentile(featureset[column], 25)
+    Q3 = np.percentile(featureset[column], 75)
+    IQR = Q3 - Q1
+
+    upper_limit = Q3 + 1.5 * IQR
+    lower_limit = Q1 - 1.5 * IQR
+
+    outliers = np.where((featureset[column] > upper_limit) | (featureset[column] < lower_limit))
+    print(f"{column}异常值索引：", outliers[0])
+    print(f"{column}异常值：", featureset[column].values[outliers])
+    featureset.loc[(featureset[column] > upper_limit) | (featureset[column] < lower_limit), column] = np.nan
+
+# 对缺失值进行插值处理
+featureset.interpolate(method='linear', inplace=True)
+featureset=featureset.iloc[discre:discre+length]
+repeat_count = 96
+# 使用 numpy 扩展 DataFrame
+extended_data = np.repeat(featureset.values, repeat_count, axis=0)
+# 使用featureset_temp存储处理好的特征数据,并更改其列名
+featureset_temp=featureset
+featureset_temp.rename(columns=dict(zip(featureset_temp.columns, [f'feature_{i}' for i in range(5)])), inplace=True)
+staic=featureset_temp
+# 构建新的 DataFrame
+featureset = pd.DataFrame(extended_data, columns=[f'feature_{i}' for i in range(5)])
+featureset.set_index(dataset[name].index,inplace=True)
+# 提取数据并转置
+y_data = dataset.values
+
+
+# 创建一个新的图形
+
+plt.figure(figsize=(20, 6))
+
+# 绘制折线图
+plt.plot(dataset.index, dataset[name])
+
+# 添加标题和标签
+plt.title(name+'Load Variation Chart')
+plt.xlabel('time/h')
+plt.ylabel('Power/KW')
+
+# 自动格式化时间轴
+plt.gcf().autofmt_xdate()
+
+# 显示图形
+plt.show()
+
+# %%################################对VMD参数调节#################################################
+# Time Domain 0 to T
+T = length*96
+# some sample parameters for VMD
+alpha = 2000  # moderate bandwidth constraint
+tau = 0.  # noise-tolerance (no strict fidelity enforcement)
+K = 3  # 3 modes
+DC = 0  # no DC part imposed
+init = 1  # initialize omegas uniformly
+tol = 1e-7
+
+# In[5]                         对实际数据进行分解
+# 提取数据并转置
+u, u_hat, omega = VMD(y_data, alpha, tau, K, DC, init, tol)
+# For convenience here: Order omegas increasingly and reindex u/u_hat
+sortIndex = np.argsort(omega[-1, :])
+omega = omega[:, sortIndex]
+u_hat = u_hat[:, sortIndex]
+u = u[sortIndex, :]
+sum_u=np.sum(u, axis=0)
+sum_u = sum_u.reshape(-1, 1)
+residuals = y_data - sum_u
+linestyles = ['b', 'g', 'm', 'c', 'c', 'r', 'k']
+# In[6]                    将原始输入信号和分解状态进行绘制
+rows = K+2  # 定义行数
+cols = 1  # 定义列数
+# 创建子图网格
+fig, axs = plt.subplots(rows, cols, figsize=(20, 30))
+fig.suptitle('Original input signal Decomposed ')
+
+# 绘制原始信号
+axs[0].plot(y_data)
+axs[0].set_xlim((0, T))
+axs[0].set_title('Original Signal')
+
+# 绘制分解模式
+for i, row in enumerate(u):
+    ax = axs[i+1,]  # 获取当前子图
+    ax.plot(row)
+    ax.set_title('Decomposed Mode {}'.format(i + 1))
+    ax.set_xlim((0, T))
+# 计算残差并绘制残差图像
+
+axs[K+1].plot(residuals)
+axs[K+1].set_title('Residuals')
+axs[K+1].set_xlim((0, T))
+plt.show()
+# In[7]                         调整接口程序  
+residuals=residuals.T
+result = np.concatenate((u, residuals), axis=0)
+# 创建一个空列表来存储 DataFrame
+dfs = []
+lag = 7 * 96
+datatrain=0
+
+# In[8]                         时序预测第一个模态分量
+################################时序预测第一个模态分量
+i=0
+dataset = pd.DataFrame(result[i], columns=[name+' Decomposed Mode {}'.format(i + 1)],index=time_index)
+#
+print(' Count row of data: ',len(dataset))
+fig = plt.figure(figsize=(14, 6))
+plt.plot(dataset)
+plt.xlabel('Time')
+plt.ylabel(name+' Decomposed Mode {}'.format(i + 1))
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+plt.title(name+' Decomposed Mode {}'.format(i + 1))
+plt.show()
+#Min-Max Normalization
+dataset_norm = dataset.copy()
+dataset[[name+' Decomposed Mode {}'.format(i + 1)]]
+scaler = MinMaxScaler()
+dataset_norm[name+' Decomposed Mode {}'.format(i + 1)] = scaler.fit_transform(dataset[[name+' Decomposed Mode {}'.format(i + 1)]])
+dataset_norm
+
+fig = plt.figure(figsize=(14, 6))
+plt.plot(dataset_norm)
+plt.xlabel('Time')
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+plt.title(name+' Decomposed Mode {}'.format(i + 1)+' Normalized')
+plt.show()
+################################################################################################
+totaldata = dataset.values
+totaldatatrain = int(len(totaldata)*0.7)#训练个数
+datatrain=totaldatatrain
+
+# Store data into each partition
+training_set = dataset_norm[0:totaldatatrain]
+test_set = dataset_norm[totaldatatrain:]
+
+
+# graph of data training
+fig = plt.figure(figsize=(14, 6))
+plt.plot(training_set)
+plt.xlabel(name+' Decomposed Mode {}'.format(i + 1))
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+plt.title(name+' Decomposed Mode {}'.format(i + 1)+' Training')
+plt.show()
+
+
+# graph of data test
+fig = plt.figure(figsize=(14, 6))
+plt.plot(test_set)
+plt.xlabel(name+' Decomposed Mode {}'.format(i + 1))
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+plt.title(name+' Decomposed Mode {}'.format(i + 1)+' Test')
+plt.show()
+###################################################################################################
+
+# sliding windows function
+def create_sliding_windows1(data, len_data, lag):
+    x = []
+    y = []
+    for i in range(lag, len_data, 96):
+        x.append(data[i-lag:i, 0])
+        y.append(data[i:i+96, 0])
+    return np.array(x), np.array(y)
+
+# Formating data into array for create sliding windows
+array_training_set = np.array(training_set)
+array_test_set = np.array(test_set)
+
+# Create sliding windows into training data
+x_train, y_train = create_sliding_windows1(array_training_set,len(array_training_set), lag)
+x_train = np.reshape(x_train, (x_train.shape[0],x_train.shape[1],1))
+# Create sliding windows into test data
+x_test,y_test = create_sliding_windows1(array_test_set,len(array_test_set),lag)
+x_test = np.reshape(x_test, (x_test.shape[0],x_test.shape[1],1))
+#####################################################################################################
+# Hyperparameters
+learning_rate = 0.01
+hidden_unit = 64
+batch_size=256
+epoch = 30
+
+# Architecture Gated Recurrent Unit
+regressorGRU = Sequential()
+
+# First GRU layer with dropout
+regressorGRU.add(GRU(units=hidden_unit, return_sequences=True, input_shape=(x_train.shape[1],1), activation = 'tanh'))
+regressorGRU.add(Dropout(0.2))
+# Second GRU layer with dropout
+regressorGRU.add(GRU(units=hidden_unit, return_sequences=True, activation = 'tanh'))
+regressorGRU.add(Dropout(0.2))
+# Third GRU layer with dropout
+regressorGRU.add(GRU(units=hidden_unit, return_sequences=False, activation = 'tanh'))
+regressorGRU.add(Dropout(0.2))
+
+# Output layer
+regressorGRU.add(Dense(units=96))
+
+# Compiling the Gated Recurrent Unit
+regressorGRU.compile(optimizer=optimizers.Adam(learning_rate=learning_rate), loss='mean_squared_error')
+
+# Fitting ke data training dan data validation
+pred = regressorGRU.fit(x_train, y_train, batch_size=batch_size, epochs=epoch)
+########################################################################################################
+fig = plt.figure(figsize=(10, 4))
+plt.plot(pred.history['loss'], label='train loss')
+# plt.plot(pred.history['val_loss'], label='val loss')
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(loc='upper right')
+plt.show()
+#######################################################################################################
+# Tabel value of training loss & validation loss
+learningrate_parameter = learning_rate
+train_loss=pred.history['loss'][-1]
+# validation_loss=pred.history['val_loss'][-1]
+learningrate_parameter=pd.DataFrame(data=[[learningrate_parameter, train_loss]],
+                                    columns=['Learning Rate', 'Training Loss'])
+learningrate_parameter.set_index('Learning Rate')
+########################################################################################################
+y_pred_test = regressorGRU.predict(x_test)
+
+# Invert normalization min-max
+y_pred_invert_norm = scaler.inverse_transform(y_pred_test)
+########################################################################################################
+# Comparison data test with data prediction
+datacompare = pd.DataFrame()
+datatest=np.array(dataset[name+' Decomposed Mode {}'.format(i + 1)][totaldatatrain+lag:])
+datapred= y_pred_invert_norm
+datapred = datapred.flatten()
+
+datacompare['Data Test'] = datatest
+datacompare['Prediction Results Mode {}'.format(i + 1)] = datapred
+datacompare
+#########################################################################################################
+# Calculate RMSE
+rmse = np.sqrt(mean_squared_error(datatest, datapred))
+
+# Calculate MAPE for each data point
+mape = np.abs(datapred-datatest)/ datatest * 100
+
+# Calculate average MAPE
+average_mape = np.mean(mape)
+
+# Print the result
+print("Average MAPE (%): ", average_mape)
+
+# Print the results
+print("Average RMSE: ", rmse)
+#########################################################################################################
+# Create graph data test and prediction result
+plt.figure(num=None, figsize=(10, 4), dpi=80,facecolor='w', edgecolor='k')
+plt.title('Graph Comparison Data Actual and Data Prediction')
+plt.plot(datacompare['Data Test'][:96*7], color='red',label='Data Test')
+plt.plot(datacompare['Prediction Results Mode {}'.format(i + 1)][:96*7], color='blue',label='Prediction Results Mode {}'.format(i + 1))
+plt.xlabel('Day')
+plt.ylabel(name+' Decomposed Mode {}'.format(i + 1))
+plt.legend()
+plt.show()
+dataset = pd.DataFrame(datacompare.iloc[:, 1], columns=['Prediction Results Mode {}'.format(i + 1)])
+dfs.append(dataset)
+
+################################第一个模态分量预测结束
+
+# In[8]                         特征预测第后续模态分量
+for i  in range(1,K+1):
+    #################################绘制分解图形并归一化###############################################
+    dataset = pd.DataFrame(result[i], columns=[name+' Decomposed Mode {}'.format(i + 1)],index=time_index)
+    #
+    print(' Count row of data: ',len(dataset))
+    fig = plt.figure(figsize=(14, 6))
+    plt.plot(dataset)
+    plt.xlabel('Time')
+    plt.ylabel(name+' Decomposed Mode {}'.format(i + 1))
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.title(name+' Decomposed Mode {}'.format(i + 1))
+    plt.show()
+    #Min-Max Normalization
+    dataset_norm = dataset.copy()
+    dataset[[name+' Decomposed Mode {}'.format(i + 1)]]
+    scaler = MinMaxScaler()
+    dataset_norm[name+' Decomposed Mode {}'.format(i + 1)] = scaler.fit_transform(dataset[[name+' Decomposed Mode {}'.format(i + 1)]])
+    dataset_norm
+
+    fig = plt.figure(figsize=(14, 6))
+    plt.plot(dataset_norm)
+    plt.xlabel('Time')
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.title(name+' Decomposed Mode {}'.format(i + 1)+' Normalized')
+    plt.show()
+    #################################确定mrmr相关变量###########################################
+    
+    selected_features = mrmr.mrmr_regression(X=featureset, y=dataset_norm.iloc[:,0], K=2)
+    print("Selected features:", selected_features)
+    featureset_temp=staic
+    featureset_temp=featureset_temp[[selected_features[0],selected_features[1]]]
+    ##############################划分训练集测试集并绘制##########################################
+    totaldata = dataset.values
+    totaldatatrain = int(len(totaldata)*0.7)#负荷训练个数
+    datatrain=totaldatatrain
+    
+    totalfeature = featureset_temp.values
+    totalfeaturetrain = int(len(totalfeature)*0.7)#特征训练个数
+    featuretrain=totalfeaturetrain
+    
+    # Store data into each partition
+    training_set = dataset_norm[0:totaldatatrain]
+    test_set = dataset_norm[totaldatatrain:]
+    featureset_temp_training=featureset_temp[0:totalfeaturetrain]
+    featureset_temp_test=featureset_temp[totalfeaturetrain:]
+   
+    # graph of data training
+    fig = plt.figure(figsize=(14, 6))
+    plt.plot(training_set)
+    plt.xlabel(name+' Decomposed Mode {}'.format(i + 1))
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.title(name+' Decomposed Mode {}'.format(i + 1)+' Training')
+    plt.show()
+
+
+    # graph of data test
+    fig = plt.figure(figsize=(14, 6))
+    plt.plot(test_set)
+    plt.xlabel(name+' Decomposed Mode {}'.format(i + 1))
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.title(name+' Decomposed Mode {}'.format(i + 1)+' Test')
+    plt.show()
+    ###################################################################################################
+
+    # sliding windows function
+    def create_sliding_windows(data1, data2,len_data, lag):
+        x = []
+        y = []
+        for i in range(lag, len_data, 96):
+            y.append(data2[i:i+96, 0])
+        for i in range(lag+2*7, int(len_data+len_data/48), 98):
+            x.append(data1[i-(lag+2*7):i, 0])
+        return np.array(x), np.array(y)
+    ##################################合并负荷数据与特征数据#################################################
+    training_set_con = pd.concat([training_set, featureset_temp_training[selected_features[0]],featureset_temp_training[selected_features[1]]], axis=1)
+    test_set_con = pd.concat([test_set, featureset_temp_test[selected_features[0]],featureset_temp_test[selected_features[1]]], axis=1)
+    ###########################################训练集合并
+    list_A = training_set_con[name+' Decomposed Mode {}'.format(i + 1)].tolist()
+    list_B = training_set_con[selected_features[0]].tolist()
+    list_C = training_set_con[selected_features[1]].tolist()
+    combined_list = []
+    
+    # 使用循环将这些列表按交替顺序连接
+    for a, b, c in zip(list_A, list_B, list_C):
+        combined_list.extend([a, b, c])
+        
+    training_set_con = pd.DataFrame([combined_list], columns=[f'col_{i}' for i in range(len(combined_list))]).T
+    training_set_con = training_set_con.dropna()
+    ###############################################测试集合并
+    list_A = test_set_con[name+' Decomposed Mode {}'.format(i + 1)].tolist()
+    list_B = test_set_con[selected_features[0]].tolist()
+    list_C = test_set_con[selected_features[1]].tolist()
+    combined_list = []
+
+    # 使用循环将这些列表按交替顺序连接
+    for a, b, c in zip(list_A, list_B, list_C):
+        combined_list.extend([a, b, c])
+        
+    test_set_con = pd.DataFrame([combined_list], columns=[f'col_{i}' for i in range(len(combined_list))]).T
+    test_set_con = test_set_con.dropna()
+    # Formating data into array for create sliding windows
+    array_training_set = np.array(training_set)
+    array_training_set_con = np.array(training_set_con)
+    
+    array_test_set = np.array(test_set)
+    array_test_set_con = np.array(test_set_con)
+   
+    # Create sliding windows into training data
+    x_train, y_train = create_sliding_windows(array_training_set_con,array_training_set,len(array_training_set), lag)
+    x_train = np.reshape(x_train, (x_train.shape[0],x_train.shape[1],1))
+    # Create sliding windows into test data
+    x_test,y_test = create_sliding_windows(array_test_set_con,array_test_set,len(array_test_set),lag)
+    x_test = np.reshape(x_test, (x_test.shape[0],x_test.shape[1],1))
+    #####################################################################################################
+    
+    # Hyperparameters
+    learning_rate = 0.01
+    hidden_unit = 64
+    batch_size=256
+    epoch = 30
+
+    # Architecture Gated Recurrent Unit
+    regressorGRU = Sequential()
+
+    # First GRU layer with dropout
+    regressorGRU.add(GRU(units=hidden_unit, return_sequences=True, input_shape=(x_train.shape[1],1), activation = 'tanh'))
+    regressorGRU.add(Dropout(0.2))
+    # Second GRU layer with dropout
+    regressorGRU.add(GRU(units=hidden_unit, return_sequences=True, activation = 'tanh'))
+    regressorGRU.add(Dropout(0.2))
+    # Third GRU layer with dropout
+    regressorGRU.add(GRU(units=hidden_unit, return_sequences=False, activation = 'tanh'))
+    regressorGRU.add(Dropout(0.2))
+
+    # Output layer
+    regressorGRU.add(Dense(units=96))
+
+    # Compiling the Gated Recurrent Unit
+    regressorGRU.compile(optimizer=optimizers.Adam(learning_rate=learning_rate), loss='mean_squared_error')
+
+    # Fitting ke data training dan data validation
+    pred = regressorGRU.fit(x_train, y_train, batch_size=batch_size, epochs=epoch)
+    ########################################################################################################
+    
+    fig = plt.figure(figsize=(10, 4))
+    plt.plot(pred.history['loss'], label='train loss')
+    # plt.plot(pred.history['val_loss'], label='val loss')
+    plt.title('model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(loc='upper right')
+    plt.show()
+    #######################################################################################################
+    # Tabel value of training loss & validation loss
+    learningrate_parameter = learning_rate
+    train_loss=pred.history['loss'][-1]
+    # validation_loss=pred.history['val_loss'][-1]
+    learningrate_parameter=pd.DataFrame(data=[[learningrate_parameter, train_loss]],
+                                        columns=['Learning Rate', 'Training Loss'])
+    learningrate_parameter.set_index('Learning Rate')
+    ########################################################################################################
+    y_pred_test = regressorGRU.predict(x_test)
+
+    # Invert normalization min-max
+    y_pred_invert_norm = scaler.inverse_transform(y_pred_test)
+    ########################################################################################################
+    # Comparison data test with data prediction
+    datacompare = pd.DataFrame()
+    datatest=np.array(dataset[name+' Decomposed Mode {}'.format(i + 1)][totaldatatrain+lag:])
+    datapred= y_pred_invert_norm
+    datapred = datapred.flatten()
+
+    datacompare['Data Test'] = datatest
+    datacompare['Prediction Results Mode {}'.format(i + 1)] = datapred
+    datacompare
+    #########################################################################################################
+    # Calculate RMSE
+    rmse = np.sqrt(mean_squared_error(datatest, datapred))
+
+    # Calculate MAPE for each data point
+    mape = np.abs(datapred-datatest)/ datatest * 100
+
+    # Calculate average MAPE
+    average_mape = np.mean(mape)
+
+    # Print the result
+    print("Average MAPE (%): ", average_mape)
+
+    # Print the results
+    print("Average RMSE: ", rmse)
+    #########################################################################################################
+    # Create graph data test and prediction result
+    plt.figure(num=None, figsize=(10, 4), dpi=80,facecolor='w', edgecolor='k')
+    plt.title('Graph Comparison Data Actual and Data Prediction')
+    plt.plot(datacompare['Data Test'][:96*7], color='red',label='Data Test')
+    plt.plot(datacompare['Prediction Results Mode {}'.format(i + 1)][:96*7], color='blue',label='Prediction Results Mode {}'.format(i + 1))
+    plt.xlabel('Day')
+    plt.ylabel(name+' Decomposed Mode {}'.format(i + 1))
+    plt.legend()
+    plt.show()
+    dataset = pd.DataFrame(datacompare.iloc[:, 1], columns=['Prediction Results Mode {}'.format(i + 1)])
+    dfs.append(dataset)
+# In[8]                            将预测分量整合 
+combined_df = pd.concat(dfs, axis=1)
+# 更新dataset为原始负荷数据
+dataset = Area_Load.iloc[startday:startday + length, :].values
+dataset = np.concatenate(dataset).T
+dataset = pd.DataFrame(dataset)
+time_index = pd.date_range(start=Area_Load.iloc[startday].name, periods=96 * length, freq='15min')  # 生成一年时间范围内每隔15分钟的时间索引
+dataset.set_index(time_index, inplace=True)
+dataset.rename(columns={0: name}, inplace=True)
+# 按列求和
+sum_column =pd.DataFrame(combined_df.sum(axis=1), columns=['Prediction Results'])
+sum_column.set_index(dataset[datatrain+lag:].index,inplace=True)
+
+
+datacompare = pd.concat([dataset[name][datatrain+lag:], sum_column['Prediction Results']], axis=1)
+
+# 显示结果
+# In[9]                          绘制预测分量与实际分量  
+datatest = datacompare[name]
+datapred = datacompare['Prediction Results'] 
+rmse = np.sqrt(mean_squared_error(datatest, datapred))
+
+# Calculate MAPE for each data point
+mape = np.abs(datapred-datatest)/ datatest * 100
+
+# Calculate average MAPE
+average_mape = np.mean(mape)
+
+# Print the result
+print("Average MAPE (%): ", average_mape)
+
+# Print the results
+print("Average RMSE: ", rmse)
+# In[10]
+# Create graph data test and prediction result
+plt.figure(num=None, figsize=(10, 4), dpi=80,facecolor='w', edgecolor='k')
+plt.title('Graph Comparison Data Actual and Data Prediction')
+plt.plot(datacompare[name][:], color='red',label='Data Test')
+plt.plot(datacompare['Prediction Results'][:], color='blue',label='Prediction Results')
+plt.xlabel('Day')
+plt.ylabel(name)
+plt.legend()
+plt.show()
